@@ -34,3 +34,15 @@ pub fn doc_invalid_link_broken_url_scheme_part() {}
 /// .fake/doc_invalid_link_broken_url_host_part)
 //~^^ ERROR: possible broken doc link
 pub fn doc_invalid_link_broken_url_host_part() {}
+
+/// This might be considered a link false positive
+/// and should be ignored by this lint rule:
+/// Example of referencing some code with brackets [T].
+pub fn doc_ignore_link_false_positive_1() {}
+
+/// This might be considered a link false positive
+/// and should be ignored by this lint rule:
+/// [`T`]. Continue text after brackets,
+/// then (something in
+/// parenthesis).
+pub fn doc_ignore_link_false_positive_2() {}

@@ -283,7 +283,7 @@ declare_clippy_lint! {
     /// /// [example of a good link](https://github.com/rust-lang/rust-clippy/)
     /// pub fn do_something() {}
     /// ```
-    #[clippy::version = "1.82.0"]
+    #[clippy::version = "1.84.0"]
     pub DOC_BROKEN_LINK,
     pedantic,
     "broken document link"
@@ -753,6 +753,9 @@ fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[
         return Some(DocHeaders::default());
     }
 
+    // Run broken link checker before parsing the document.
+    broken_link::check(cx, attrs);
+
     let mut cb = fake_broken_link_callback;
 
     // disable smart punctuation to pick up ['link'] more easily
@@ -958,9 +961,6 @@ fn check_doc<'a, Events: Iterator<Item = (pulldown_cmark::Event<'a>, Range<usize
                 } else {
                     if in_link.is_some() {
                         link_with_quotes::check(cx, trimmed_text, range.clone(), fragments);
-                        if let Some(link) = in_link.as_ref() {
-                            broken_link::check(cx, trimmed_text, range.clone(), fragments, link);
-                        }
                     }
                     if let Some(link) = in_link.as_ref()
                         && let Ok(url) = Url::parse(link)

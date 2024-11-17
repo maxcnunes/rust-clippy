@@ -1,14 +1,115 @@
-use super::{DOC_BROKEN_LINK, Fragments};
 use clippy_utils::diagnostics::span_lint;
+use rustc_ast::{AttrKind, AttrStyle, Attribute};
 use rustc_lint::LateContext;
-use std::ops::Range;
+use rustc_span::{BytePos, Span};
 
-// Check broken links in code docs.
-pub fn check(cx: &LateContext<'_>, _trimmed_text: &str, range: Range<usize>, fragments: Fragments<'_>, link: &str) {
-    if let Some(span) = fragments.span(cx, range) {
-        // Broken links are replaced with "fake" value by `fake_broken_link_callback` at `doc/mod.rs`.
-        if link == "fake" {
-            span_lint(cx, DOC_BROKEN_LINK, span, "possible broken doc link");
+use super::DOC_BROKEN_LINK;
+
+pub fn check(cx: &LateContext<'_>, attrs: &[Attribute]) {
+    let broken_links: Vec<_> = BrokenLinkLoader::collect_spans_broken_link(attrs);
+
+    for span in broken_links {
+        span_lint(cx, DOC_BROKEN_LINK, span, "possible broken doc link");
+    }
+}
+
+struct BrokenLinkLoader {
+    spans_broken_link: Vec<Span>,
+    active: bool,
+    processing_title: bool,
+    processing_link: bool,
+    start_at: u32,
+}
+
+impl BrokenLinkLoader {
+    fn collect_spans_broken_link(attrs: &[Attribute]) -> Vec<Span> {
+        let mut loader = BrokenLinkLoader {
+            spans_broken_link: vec![],
+            active: false,
+            processing_title: false,
+            processing_link: false,
+            start_at: 0_u32,
+        };
+        loader.scan_attrs(attrs);
+        loader.spans_broken_link
+    }
+
+    fn scan_attrs(&mut self, attrs: &[Attribute]) -> Vec<(Span, String)> {
+        let broken_links: Vec<(Span, String)> = vec![];
+
+        for attr in attrs {
+            if let AttrKind::DocComment(_com_kind, sym) = attr.kind
+                && let AttrStyle::Outer = attr.style
+            {
+                self.scan_line(sym.as_str(), attr.span);
+            }
         }
+
+        broken_links
+    }
+
+    fn scan_line(&mut self, the_str: &str, attr_span: Span) {
+        // Note that we specifically need the char _byte_ indices here, not the positional indexes
+        // within the char array to deal with multi-byte characters properly. `char_indices` does
+        // exactly that. It provides an iterator over tuples of the form `(byte position, char)`.
+        let char_indices: Vec<_> = the_str.char_indices().collect();
+
+        let mut no_url_curr_line = true;
+
+        for (pos, c) in char_indices {
+            if !self.active {
+                if c == '[' {
+                    self.processing_title = true;
+                    self.active = true;
+                    self.start_at = attr_span.lo().0 + u32::try_from(pos).unwrap();
+                }
+                continue;
+            }
+
+            if self.processing_title {
+                if c == ']' {
+                    self.processing_title = false;
+                }
+                continue;
+            }
+
+            if !self.processing_link {
+                if c == '(' {
+                    self.processing_link = true;
+                } else {
+                    // not a real link, start lookup over again
+                    self.reset_lookup();
+                    no_url_curr_line = true;
+                }
+                continue;
+            }
+
+            if c == ')' {
+                self.reset_lookup();
+                no_url_curr_line = true;
+            } else if no_url_curr_line && c != ' ' {
+                no_url_curr_line = false;
+            }
+        }
+
+        // If it got to the end of the line and it still processing link part,
+        // it means this is a broken link.
+        if self.active && self.processing_link && !no_url_curr_line {
+            let pos_end_line = u32::try_from(the_str.len()).unwrap() - 1;
+
+            // +3 skips the opening delimiter
+            let start = BytePos(self.start_at + 3);
+            let end = start + BytePos(pos_end_line);
+
+            let com_span = Span::new(start, end, attr_span.ctxt(), attr_span.parent());
+
+            self.spans_broken_link.push(com_span);
+        }
+    }
+
+    fn reset_lookup(&mut self) {
+        self.processing_link = false;
+        self.active = false;
+        self.start_at = 0;
     }
 }
