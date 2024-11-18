@@ -6,9 +6,7 @@ use rustc_span::{BytePos, Span};
 use super::DOC_BROKEN_LINK;
 
 pub fn check(cx: &LateContext<'_>, attrs: &[Attribute]) {
-    let broken_links: Vec<_> = BrokenLinkLoader::collect_spans_broken_link(attrs);
-
-    for span in broken_links {
+    for span in BrokenLinkLoader::collect_spans_broken_link(attrs) {
         span_lint(cx, DOC_BROKEN_LINK, span, "possible broken doc link");
     }
 }
@@ -34,9 +32,7 @@ impl BrokenLinkLoader {
         loader.spans_broken_link
     }
 
-    fn scan_attrs(&mut self, attrs: &[Attribute]) -> Vec<(Span, String)> {
-        let broken_links: Vec<(Span, String)> = vec![];
-
+    fn scan_attrs(&mut self, attrs: &[Attribute]) {
         for attr in attrs {
             if let AttrKind::DocComment(_com_kind, sym) = attr.kind
                 && let AttrStyle::Outer = attr.style
@@ -44,8 +40,6 @@ impl BrokenLinkLoader {
                 self.scan_line(sym.as_str(), attr.span);
             }
         }
-
-        broken_links
     }
 
     fn scan_line(&mut self, the_str: &str, attr_span: Span) {
