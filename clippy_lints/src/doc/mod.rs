@@ -277,6 +277,7 @@ declare_clippy_lint! {
     /// /// [example of a bad link](https://
     /// /// github.com/rust-lang/rust-clippy/)
     /// pub fn do_something() {}
+    /// ```
     ///
     /// It shouldn't be broken across multiple lines to work:
     /// ```no_run
