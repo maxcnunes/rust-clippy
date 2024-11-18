@@ -49,23 +49,6 @@ pub fn doc_invalid_link_broken_url_scheme_part() {}
 //~^^ ERROR: possible broken doc link: broken across multiple lines
 pub fn doc_invalid_link_broken_url_host_part() {}
 
-// NOTE: We don't test doc links where the url is broken accross
-// multiple lines in the path part because that is something
-// rustdoc itself will check and warn about it.
-pub fn doc_invalid_link_broken_url_path_part() {}
-
-/// Test invalid link, url missing close parenthesis.
-/// [doc invalid link broken url missing close parenthesis](
-/// https://test.fake/doc_invalid_link_missing_close_parenthesis
-//~^^ ERROR: possible broken doc link: missing close parenthesis
-pub fn doc_invalid_link_missing_close_parenthesis() {}
-
-/// Test invalid link, url whitespace within url.
-/// [doc invalid link broken url whitespace within url](
-/// https://test.fake/doc_invalid_link_url whitespace_within_url)
-//~^^ ERROR: possible broken doc link: whitespace within url
-pub fn doc_invalid_link_url_whitespace_within_url() {}
-
 /// This might be considered a link false positive
 /// and should be ignored by this lint rule:
 /// Example of referencing some code with brackets [FakeType].

@@ -9,8 +9,6 @@ pub fn check(cx: &LateContext<'_>, attrs: &[Attribute]) {
     for broken_link in BrokenLinkLoader::collect_spans_broken_link(attrs) {
         let reason_msg = match broken_link.reason {
             BrokenLinkReason::MultipleLines => "broken across multiple lines",
-            BrokenLinkReason::MissingCloseParenthesis => "missing close parenthesis",
-            BrokenLinkReason::WhiteSpace => "whitespace within url",
         };
 
         span_lint(
@@ -23,10 +21,13 @@ pub fn check(cx: &LateContext<'_>, attrs: &[Attribute]) {
 }
 
 /// The reason why a link is considered broken.
+// NOTE: We don't check these other cases because
+// rustdoc itself will check and warn about it:
+// - When a link url is broken across multiple lines in the URL path part
+// - When a link tag is missing the close parenthesis character at the end.
+// - When a link has whitespace within the url link.
 enum BrokenLinkReason {
     MultipleLines,
-    MissingCloseParenthesis,
-    WhiteSpace,
 }
 
 /// Broken link data.
@@ -98,20 +99,7 @@ impl BrokenLinkLoader {
                 && let AttrStyle::Outer = attr.style
             {
                 self.scan_line(sym.as_str(), attr.span);
-            } else {
-                if idx > 0 && self.active && self.processing_link_url {
-                    let prev_attr = &attrs[idx - 1];
-                    let prev_end_line = prev_attr.span.hi().0;
-                    self.record_broken_link(prev_end_line, BrokenLinkReason::MissingCloseParenthesis);
-                }
-                self.reset_lookup();
             }
-        }
-
-        if self.active && self.processing_link_url {
-            let last_end_line = attrs.last().unwrap().span.hi().0;
-            self.record_broken_link(last_end_line, BrokenLinkReason::MissingCloseParenthesis);
-            self.reset_lookup();
         }
     }
 
@@ -165,13 +153,6 @@ impl BrokenLinkLoader {
                     self.record_broken_link(pos_end, BrokenLinkReason::MultipleLines);
                     self.reset_lookup();
                 }
-                self.reset_lookup();
-                continue;
-            }
-
-            if self.reading_link_url && c.is_whitespace() {
-                let pos_end = u32::try_from(pos).unwrap();
-                self.record_broken_link(pos_end, BrokenLinkReason::WhiteSpace);
                 self.reset_lookup();
                 continue;
             }
