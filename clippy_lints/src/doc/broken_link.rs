@@ -16,9 +16,9 @@ pub fn check(cx: &LateContext<'_>, attrs: &[Attribute]) {
 struct BrokenLinkLoader {
     spans_broken_link: Vec<Span>,
     active: bool,
-    processing_title: bool,
-    processing_link: bool,
-    start_at: u32,
+    processing_link_text: bool,
+    processing_link_url: bool,
+    start: u32,
 }
 
 impl BrokenLinkLoader {
@@ -26,9 +26,9 @@ impl BrokenLinkLoader {
         let mut loader = BrokenLinkLoader {
             spans_broken_link: vec![],
             active: false,
-            processing_title: false,
-            processing_link: false,
-            start_at: 0_u32,
+            processing_link_text: false,
+            processing_link_url: false,
+            start: 0_u32,
         };
         loader.scan_attrs(attrs);
         loader.spans_broken_link
@@ -59,23 +59,23 @@ impl BrokenLinkLoader {
         for (pos, c) in char_indices {
             if !self.active {
                 if c == '[' {
-                    self.processing_title = true;
+                    self.processing_link_text = true;
                     self.active = true;
-                    self.start_at = attr_span.lo().0 + u32::try_from(pos).unwrap();
+                    self.start = attr_span.lo().0 + u32::try_from(pos).unwrap();
                 }
                 continue;
             }
 
-            if self.processing_title {
+            if self.processing_link_text {
                 if c == ']' {
-                    self.processing_title = false;
+                    self.processing_link_text = false;
                 }
                 continue;
             }
 
-            if !self.processing_link {
+            if !self.processing_link_url {
                 if c == '(' {
-                    self.processing_link = true;
+                    self.processing_link_url = true;
                 } else {
                     // not a real link, start lookup over again
                     self.reset_lookup();
@@ -92,13 +92,13 @@ impl BrokenLinkLoader {
             }
         }
 
-        // If it got to the end of the line and it still processing link part,
+        // If it got at the end of the line and it still processing a link part,
         // it means this is a broken link.
-        if self.active && self.processing_link && !no_url_curr_line {
+        if self.active && self.processing_link_url && !no_url_curr_line {
             let pos_end_line = u32::try_from(the_str.len()).unwrap() - 1;
 
             // +3 skips the opening delimiter
-            let start = BytePos(self.start_at + 3);
+            let start = BytePos(self.start + 3);
             let end = start + BytePos(pos_end_line);
 
             let com_span = Span::new(start, end, attr_span.ctxt(), attr_span.parent());
@@ -108,8 +108,8 @@ impl BrokenLinkLoader {
     }
 
     fn reset_lookup(&mut self) {
-        self.processing_link = false;
+        self.processing_link_url = false;
         self.active = false;
-        self.start_at = 0;
+        self.start = 0;
     }
 }
