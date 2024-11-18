@@ -77,8 +77,7 @@ impl BrokenLinkLoader {
     }
 
     fn scan_attrs(&mut self, attrs: &[Attribute]) {
-        for idx in 0..attrs.len() {
-            let attr = &attrs[idx];
+        for attr in attrs {
             if let AttrKind::DocComment(_com_kind, sym) = attr.kind
                 && let AttrStyle::Outer = attr.style
             {
@@ -93,10 +92,10 @@ impl BrokenLinkLoader {
         // exactly that. It provides an iterator over tuples of the form `(byte position, char)`.
         let char_indices: Vec<_> = line.char_indices().collect();
 
-        let reading_link_url_new_line = match self.state {
-            Some(State::ProcessingLinkUrl(UrlState::FilledEntireSingleLine)) => true,
-            _ => false,
-        };
+        let reading_link_url_new_line = matches!(
+            self.state,
+            Some(State::ProcessingLinkUrl(UrlState::FilledEntireSingleLine))
+        );
 
         for (pos, c) in char_indices {
             if pos == 0 && c.is_whitespace() {
