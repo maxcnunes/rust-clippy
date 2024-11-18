@@ -1,4 +1,4 @@
-error: possible broken doc link
+error: possible broken doc link: broken across multiple lines
   --> tests/ui/doc_broken_link.rs:41:5
    |
 LL |   /// [doc invalid link broken url scheme part part](https://
@@ -9,7 +9,7 @@ LL | | /// test.fake/doc_invalid_link_broken_url_scheme_part)
    = note: `-D clippy::doc-broken-link` implied by `-D warnings`
    = help: to override `-D warnings` add `#[allow(clippy::doc_broken_link)]`
 
-error: possible broken doc link
+error: possible broken doc link: broken across multiple lines
   --> tests/ui/doc_broken_link.rs:47:5
    |
 LL |   /// [doc invalid link broken url host part](https://test
@@ -17,13 +17,20 @@ LL |   /// [doc invalid link broken url host part](https://test
 LL | | /// .fake/doc_invalid_link_broken_url_host_part)
    | |________________________________________________^
 
-error: possible broken doc link
-  --> tests/ui/doc_broken_link.rs:53:5
+error: possible broken doc link: missing close parenthesis
+  --> tests/ui/doc_broken_link.rs:58:5
    |
-LL |   /// [doc invalid link broken url host part](
+LL |   /// [doc invalid link broken url missing close parenthesis](
    |  _____^
 LL | | /// https://test.fake/doc_invalid_link_missing_close_parenthesis
    | |________________________________________________________________^
 
-error: aborting due to 3 previous errors
+error: possible broken doc link: whitespace within url
+  --> /Users/maxnunes/Development/forks/rust-clippy/tests/clippy.toml:1:40
+   |
+LL |   # default config for tests, overrides clippy.toml at the project root
+   |  ________________________________________^
+...  |
+
+error: aborting due to 4 previous errors
 
