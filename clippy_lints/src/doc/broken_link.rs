@@ -36,41 +36,31 @@ struct BrokenLink {
     span: Span,
 }
 
+enum State {
+    ProcessingLinkText,
+    ProcessedLinkText,
+    ProcessingLinkUrl(UrlState),
+}
+
+enum UrlState {
+    Empty,
+    FilledEntireSingleLine,
+    FilledBrokenMultipleLines,
+}
+
 /// Scan AST attributes looking up in doc comments for broken links
 /// which rustdoc won't be able to properly create link tags later.
 struct BrokenLinkLoader {
     /// List of spans for detected broken links.
     broken_links: Vec<BrokenLink>,
 
-    /// Mark it has detected a link and it is processing whether
-    /// or not it is broken.
-    active: bool,
+    state: Option<State>,
 
     /// Keep track of the span for the processing broken link.
     active_span: Option<Span>,
 
     /// Keep track where exactly the link definition has started in the code.
     active_pos_start: u32,
-
-    /// Mark it is processing the link text tag.
-    processing_link_text: bool,
-
-    /// Mark it is processing the link url tag.
-    processing_link_url: bool,
-
-    /// Mark it is reading the url tag content. It will be false if the loader
-    /// got to the url tag processing, but all the chars read so far were just
-    /// whitespaces.
-    reading_link_url: bool,
-
-    /// Mark the url url isn't empty, but it still being processed in a new line.
-    reading_link_url_new_line: bool,
-
-    /// Mark the current link url is broken across multiple lines.
-    url_multiple_lines: bool,
-
-    /// Mark the link's span start position.
-    start: u32,
 }
 
 impl BrokenLinkLoader {
@@ -78,15 +68,9 @@ impl BrokenLinkLoader {
     fn collect_spans_broken_link(attrs: &[Attribute]) -> Vec<BrokenLink> {
         let mut loader = BrokenLinkLoader {
             broken_links: vec![],
-            active: false,
+            state: None,
             active_pos_start: 0,
             active_span: None,
-            processing_link_text: false,
-            processing_link_url: false,
-            reading_link_url: false,
-            reading_link_url_new_line: false,
-            url_multiple_lines: false,
-            start: 0_u32,
         };
         loader.scan_attrs(attrs);
         loader.broken_links
@@ -109,7 +93,10 @@ impl BrokenLinkLoader {
         // exactly that. It provides an iterator over tuples of the form `(byte position, char)`.
         let char_indices: Vec<_> = line.char_indices().collect();
 
-        self.reading_link_url_new_line = self.reading_link_url;
+        let reading_link_url_new_line = match self.state {
+            Some(State::ProcessingLinkUrl(UrlState::FilledEntireSingleLine)) => true,
+            _ => false,
+        };
 
         for (pos, c) in char_indices {
             if pos == 0 && c.is_whitespace() {
@@ -117,64 +104,60 @@ impl BrokenLinkLoader {
                 continue;
             }
 
-            if !self.active {
-                if c == '[' {
-                    self.processing_link_text = true;
-                    self.active = true;
-                    // +3 skips the opening delimiter
-                    self.active_pos_start = attr_span.lo().0 + u32::try_from(pos).unwrap() + 3;
-                    self.active_span = Some(attr_span);
-                }
-                continue;
-            }
+            match &self.state {
+                None => {
+                    if c == '[' {
+                        self.state = Some(State::ProcessingLinkText);
+                        // +3 skips the opening delimiter
+                        self.active_pos_start = attr_span.lo().0 + u32::try_from(pos).unwrap() + 3;
+                        self.active_span = Some(attr_span);
+                    }
+                },
+                Some(State::ProcessingLinkText) => {
+                    if c == ']' {
+                        self.state = Some(State::ProcessedLinkText);
+                    }
+                },
+                Some(State::ProcessedLinkText) => {
+                    if c == '(' {
+                        self.state = Some(State::ProcessingLinkUrl(UrlState::Empty));
+                    } else {
+                        // not a real link, start lookup over again
+                        self.reset_lookup();
+                    }
+                },
+                Some(State::ProcessingLinkUrl(url_state)) => {
+                    if c == ')' {
+                        // record full broken link tag
+                        if let UrlState::FilledBrokenMultipleLines = url_state {
+                            // +3 skips the opening delimiter and +1 to include the closing parethesis
+                            let pos_end = attr_span.lo().0 + u32::try_from(pos).unwrap() + 4;
+                            self.record_broken_link(pos_end, BrokenLinkReason::MultipleLines);
+                            self.reset_lookup();
+                        }
+                        self.reset_lookup();
+                        continue;
+                    }
 
-            if self.processing_link_text {
-                if c == ']' {
-                    self.processing_link_text = false;
-                }
-                continue;
-            }
+                    if !c.is_whitespace() {
+                        if reading_link_url_new_line {
+                            // It was reading a link url which was entirely in a single line, but a new char
+                            // was found in this new line which turned the url into a broken state.
+                            self.state = Some(State::ProcessingLinkUrl(UrlState::FilledBrokenMultipleLines));
+                            continue;
+                        }
 
-            if !self.processing_link_url {
-                if c == '(' {
-                    self.processing_link_url = true;
-                } else {
-                    // not a real link, start lookup over again
-                    self.reset_lookup();
-                }
-                continue;
-            }
-
-            if c == ')' {
-                // record full broken link tag
-                if self.url_multiple_lines {
-                    // +3 skips the opening delimiter and +1 to include the closing parethesis
-                    let pos_end = attr_span.lo().0 + u32::try_from(pos).unwrap() + 4;
-                    self.record_broken_link(pos_end, BrokenLinkReason::MultipleLines);
-                    self.reset_lookup();
-                }
-                self.reset_lookup();
-                continue;
-            }
-
-            if !c.is_whitespace() {
-                self.reading_link_url = true;
-            }
-
-            if self.reading_link_url_new_line {
-                self.url_multiple_lines = true;
-            }
+                        self.state = Some(State::ProcessingLinkUrl(UrlState::FilledEntireSingleLine));
+                    }
+                },
+            };
         }
     }
 
     fn reset_lookup(&mut self) {
-        self.active = false;
-        self.start = 0;
-        self.processing_link_text = false;
-        self.processing_link_url = false;
-        self.reading_link_url = false;
-        self.reading_link_url_new_line = false;
-        self.url_multiple_lines = false;
+        self.state = None;
+        self.active_span = None;
+        self.active_pos_start = 0;
     }
 
     fn record_broken_link(&mut self, pos_end: u32, reason: BrokenLinkReason) {
