@@ -6,7 +6,7 @@ use rustc_span::{BytePos, Span};
 use super::DOC_BROKEN_LINK;
 
 pub fn check(cx: &LateContext<'_>, attrs: &[Attribute]) {
-    for broken_link in BrokenLinkLoader::collect_spans_broken_link(attrs) {
+    for broken_link in BrokenLinkLoader::collect_broken_links(attrs) {
         let reason_msg = match broken_link.reason {
             BrokenLinkReason::MultipleLines => "broken across multiple lines",
         };
@@ -51,7 +51,7 @@ enum UrlState {
 /// Scan AST attributes looking up in doc comments for broken links
 /// which rustdoc won't be able to properly create link tags later.
 struct BrokenLinkLoader {
-    /// List of spans for detected broken links.
+    /// List of detected broken links.
     broken_links: Vec<BrokenLink>,
 
     state: Option<State>,
@@ -64,8 +64,8 @@ struct BrokenLinkLoader {
 }
 
 impl BrokenLinkLoader {
-    /// Return spans of broken links.
-    fn collect_spans_broken_link(attrs: &[Attribute]) -> Vec<BrokenLink> {
+    /// Return broken links.
+    fn collect_broken_links(attrs: &[Attribute]) -> Vec<BrokenLink> {
         let mut loader = BrokenLinkLoader {
             broken_links: vec![],
             state: None,
