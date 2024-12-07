@@ -6,18 +6,7 @@ use rustc_span::{BytePos, Span};
 use super::DOC_BROKEN_LINK;
 
 pub fn check(cx: &LateContext<'_>, attrs: &[Attribute]) {
-    for broken_link in BrokenLinkLoader::collect_broken_links(attrs) {
-        let reason_msg = match broken_link.reason {
-            BrokenLinkReason::MultipleLines => "broken across multiple lines",
-        };
-
-        span_lint(
-            cx,
-            DOC_BROKEN_LINK,
-            broken_link.span,
-            format!("possible broken doc link: {reason_msg}"),
-        );
-    }
+    BrokenLinkReporter::warn_if_broken_links(cx, attrs);
 }
 
 /// The reason why a link is considered broken.
@@ -49,11 +38,9 @@ enum UrlState {
 }
 
 /// Scan AST attributes looking up in doc comments for broken links
-/// which rustdoc won't be able to properly create link tags later.
-struct BrokenLinkLoader {
-    /// List of detected broken links.
-    broken_links: Vec<BrokenLink>,
-
+/// which rustdoc won't be able to properly create link tags later,
+/// and warn about those failures.
+struct BrokenLinkReporter {
     state: Option<State>,
 
     /// Keep track of the span for the processing broken link.
@@ -63,30 +50,24 @@ struct BrokenLinkLoader {
     active_pos_start: u32,
 }
 
-impl BrokenLinkLoader {
-    /// Return broken links.
-    fn collect_broken_links(attrs: &[Attribute]) -> Vec<BrokenLink> {
-        let mut loader = BrokenLinkLoader {
-            broken_links: vec![],
+impl BrokenLinkReporter {
+    fn warn_if_broken_links(cx: &LateContext<'_>, attrs: &[Attribute]) {
+        let mut reporter = BrokenLinkReporter {
             state: None,
             active_pos_start: 0,
             active_span: None,
         };
-        loader.scan_attrs(attrs);
-        loader.broken_links
-    }
 
-    fn scan_attrs(&mut self, attrs: &[Attribute]) {
         for attr in attrs {
             if let AttrKind::DocComment(_com_kind, sym) = attr.kind
                 && let AttrStyle::Outer = attr.style
             {
-                self.scan_line(sym.as_str(), attr.span);
+                reporter.scan_line(cx, sym.as_str(), attr.span);
             }
         }
     }
 
-    fn scan_line(&mut self, line: &str, attr_span: Span) {
+    fn scan_line(&mut self, cx: &LateContext<'_>, line: &str, attr_span: Span) {
         // Note that we specifically need the char _byte_ indices here, not the positional indexes
         // within the char array to deal with multi-byte characters properly. `char_indices` does
         // exactly that. It provides an iterator over tuples of the form `(byte position, char)`.
@@ -131,7 +112,7 @@ impl BrokenLinkLoader {
                         if let UrlState::FilledBrokenMultipleLines = url_state {
                             // +3 skips the opening delimiter and +1 to include the closing parethesis
                             let pos_end = attr_span.lo().0 + u32::try_from(pos).unwrap() + 4;
-                            self.record_broken_link(pos_end, BrokenLinkReason::MultipleLines);
+                            self.record_broken_link(cx, pos_end, BrokenLinkReason::MultipleLines);
                             self.reset_lookup();
                         }
                         self.reset_lookup();
@@ -159,14 +140,23 @@ impl BrokenLinkLoader {
         self.active_pos_start = 0;
     }
 
-    fn record_broken_link(&mut self, pos_end: u32, reason: BrokenLinkReason) {
+    fn record_broken_link(&mut self, cx: &LateContext<'_>, pos_end: u32, reason: BrokenLinkReason) {
         if let Some(attr_span) = self.active_span {
             let start = BytePos(self.active_pos_start);
             let end = BytePos(pos_end);
 
             let span = Span::new(start, end, attr_span.ctxt(), attr_span.parent());
 
-            self.broken_links.push(BrokenLink { reason, span });
+            let reason_msg = match reason {
+                BrokenLinkReason::MultipleLines => "broken across multiple lines",
+            };
+
+            span_lint(
+                cx,
+                DOC_BROKEN_LINK,
+                span,
+                format!("possible broken doc link: {reason_msg}"),
+            );
         }
     }
 }
