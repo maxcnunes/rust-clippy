@@ -68,17 +68,12 @@ impl BrokenLinkReporter {
     }
 
     fn scan_line(&mut self, cx: &LateContext<'_>, line: &str, attr_span: Span) {
-        // Note that we specifically need the char _byte_ indices here, not the positional indexes
-        // within the char array to deal with multi-byte characters properly. `char_indices` does
-        // exactly that. It provides an iterator over tuples of the form `(byte position, char)`.
-        let char_indices: Vec<_> = line.char_indices().collect();
-
         let reading_link_url_new_line = matches!(
             self.state,
             Some(State::ProcessingLinkUrl(UrlState::FilledEntireSingleLine))
         );
 
-        for (pos, c) in char_indices {
+        for (pos, c) in line.char_indices() {
             if pos == 0 && c.is_whitespace() {
                 // ignore prefix whitespace on comments
                 continue;
