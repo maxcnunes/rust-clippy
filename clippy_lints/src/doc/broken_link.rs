@@ -1,12 +1,27 @@
 use clippy_utils::diagnostics::span_lint;
+use pulldown_cmark::BrokenLink as PullDownBrokenLink;
 use rustc_ast::{AttrKind, AttrStyle, Attribute};
 use rustc_lint::LateContext;
+use rustc_resolve::rustdoc::DocFragment;
 use rustc_span::{BytePos, Span};
 
 use super::DOC_BROKEN_LINK;
 
 pub fn check(cx: &LateContext<'_>, attrs: &[Attribute]) {
     BrokenLinkReporter::warn_if_broken_links(cx, attrs);
+}
+
+// NOTE: temporary change to check if we can handle broken links from pulldown_cmark parser.
+pub fn check_v2(_cx: &LateContext<'_>, bl: &PullDownBrokenLink<'_>, doc: &String, fragments: &Vec<DocFragment>) {
+    log(format!("\n ---------------------",).as_str());
+    log(format!("\n doc={doc:#?}",).as_str());
+    log(format!("\n fragments={fragments:#?}",).as_str());
+
+    log(format!("\n bl={bl:#?}",).as_str());
+
+    let text: String = doc[bl.span.clone()].chars().collect();
+    log(format!("\n text based on 'bl.span' range={text:#?}",).as_str());
+    log(format!("\n ---------------------",).as_str());
 }
 
 /// The reason why a link is considered broken.
@@ -153,5 +168,18 @@ impl BrokenLinkReporter {
                 format!("possible broken doc link: {reason_msg}"),
             );
         }
+    }
+}
+
+// TODO: remove this helper function once all changes are good.
+fn log(text: &str) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
+    let filename = "../rust-clippy-debug-test.txt";
+    let mut file = OpenOptions::new().write(true).append(true).open(filename).unwrap();
+
+    if let Err(e) = writeln!(file, "{text}") {
+        eprintln!("Couldn't write to file: {}", e);
     }
 }

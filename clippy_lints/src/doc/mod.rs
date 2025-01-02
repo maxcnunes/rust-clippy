@@ -712,14 +712,6 @@ struct DocHeaders {
 /// back in the various late lint pass methods if they need the final doc headers, like "Safety" or
 /// "Panics" sections.
 fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[Attribute]) -> Option<DocHeaders> {
-    /// We don't want the parser to choke on intra doc links. Since we don't
-    /// actually care about rendering them, just pretend that all broken links
-    /// point to a fake address.
-    #[expect(clippy::unnecessary_wraps)] // we're following a type signature
-    fn fake_broken_link_callback<'a>(_: BrokenLink<'_>) -> Option<(CowStr<'a>, CowStr<'a>)> {
-        Some(("fake".into(), "fake".into()))
-    }
-
     if suspicious_doc_comments::check(cx, attrs) || empty_line_after::check(cx, attrs) || is_doc_hidden(attrs) {
         return None;
     }
@@ -756,6 +748,17 @@ fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[
 
     // Run broken link checker before parsing the document.
     broken_link::check(cx, attrs);
+
+    // We don't want the parser to choke on intra doc links. Since we don't
+    // actually care about rendering them, just pretend that all broken links
+    // point to a fake address.
+    #[expect(clippy::unnecessary_wraps)] // we're following a type signature
+    let fake_broken_link_callback = |bl: BrokenLink<'_>| -> Option<(CowStr<'_>, CowStr<'_>)> {
+        // NOTE: temporary change to check if we can handle broken links report from
+        // this function.
+        broken_link::check_v2(cx, &bl, &doc, &fragments);
+        Some(("fake".into(), "fake".into()))
+    };
 
     let mut cb = fake_broken_link_callback;
 
