@@ -1,27 +1,16 @@
 use clippy_utils::diagnostics::span_lint;
 use pulldown_cmark::BrokenLink as PullDownBrokenLink;
-use rustc_ast::{AttrKind, AttrStyle, Attribute};
 use rustc_lint::LateContext;
-use rustc_resolve::rustdoc::DocFragment;
-use rustc_span::{BytePos, Span};
+use rustc_resolve::rustdoc::{DocFragment, source_span_for_markdown_range};
+use rustc_span::{BytePos, Pos, Span};
 
 use super::DOC_BROKEN_LINK;
 
-pub fn check(cx: &LateContext<'_>, attrs: &[Attribute]) {
-    BrokenLinkReporter::warn_if_broken_links(cx, attrs);
-}
-
-// NOTE: temporary change to check if we can handle broken links from pulldown_cmark parser.
-pub fn check_v2(_cx: &LateContext<'_>, bl: &PullDownBrokenLink<'_>, doc: &String, fragments: &Vec<DocFragment>) {
-    log(format!("\n ---------------------",).as_str());
-    log(format!("\n doc={doc:#?}",).as_str());
-    log(format!("\n fragments={fragments:#?}",).as_str());
-
-    log(format!("\n bl={bl:#?}",).as_str());
-
-    let text: String = doc[bl.span.clone()].chars().collect();
-    log(format!("\n text based on 'bl.span' range={text:#?}",).as_str());
-    log(format!("\n ---------------------",).as_str());
+/// Scan and report broken link on documents.
+/// It ignores false positives detected by pulldown_cmark, and only
+/// warns users when the broken link is consider a URL.
+pub fn check(cx: &LateContext<'_>, bl: &PullDownBrokenLink<'_>, doc: &String, fragments: &Vec<DocFragment>) {
+    warn_if_broken_link(cx, bl, doc, fragments);
 }
 
 /// The reason why a link is considered broken.
@@ -34,152 +23,90 @@ enum BrokenLinkReason {
     MultipleLines,
 }
 
-/// Broken link data.
-struct BrokenLink {
-    reason: BrokenLinkReason,
-    span: Span,
-}
-
+#[derive(Debug)]
 enum State {
     ProcessingLinkText,
     ProcessedLinkText,
     ProcessingLinkUrl(UrlState),
 }
 
+#[derive(Debug)]
 enum UrlState {
     Empty,
     FilledEntireSingleLine,
     FilledBrokenMultipleLines,
 }
 
-/// Scan AST attributes looking up in doc comments for broken links
-/// which rustdoc won't be able to properly create link tags later,
-/// and warn about those failures.
-struct BrokenLinkReporter {
-    state: Option<State>,
+fn warn_if_broken_link(cx: &LateContext<'_>, bl: &PullDownBrokenLink<'_>, doc: &String, fragments: &Vec<DocFragment>) {
+    if let Some(span) = source_span_for_markdown_range(cx.tcx, doc, &bl.span, fragments) {
+        // `PullDownBrokenLink` provided by pulldown_cmark always
+        // start with `[` which makes pulldown_cmark consider this a link tag.
+        let mut state = State::ProcessingLinkText;
 
-    /// Keep track of the span for the processing broken link.
-    active_span: Option<Span>,
+        // Whether it was detected a line break within the link tag url part.
+        let mut reading_link_url_new_line = false;
 
-    /// Keep track where exactly the link definition has started in the code.
-    active_pos_start: u32,
-}
-
-impl BrokenLinkReporter {
-    fn warn_if_broken_links(cx: &LateContext<'_>, attrs: &[Attribute]) {
-        let mut reporter = BrokenLinkReporter {
-            state: None,
-            active_pos_start: 0,
-            active_span: None,
-        };
-
-        for attr in attrs {
-            if let AttrKind::DocComment(_com_kind, sym) = attr.kind
-                && let AttrStyle::Outer = attr.style
-            {
-                reporter.scan_line(cx, sym.as_str(), attr.span);
-            }
-        }
-    }
-
-    fn scan_line(&mut self, cx: &LateContext<'_>, line: &str, attr_span: Span) {
-        let reading_link_url_new_line = matches!(
-            self.state,
-            Some(State::ProcessingLinkUrl(UrlState::FilledEntireSingleLine))
-        );
-
-        for (pos, c) in line.char_indices() {
-            if pos == 0 && c.is_whitespace() {
-                // ignore prefix whitespace on comments
-                continue;
-            }
-
-            match &self.state {
-                None => {
-                    if c == '[' {
-                        self.state = Some(State::ProcessingLinkText);
-                        // +3 skips the opening delimiter
-                        self.active_pos_start = attr_span.lo().0 + u32::try_from(pos).unwrap() + 3;
-                        self.active_span = Some(attr_span);
-                    }
-                },
-                Some(State::ProcessingLinkText) => {
+        // Skip the first char because we already know it is a `[` char.
+        for (abs_pos, c) in doc.char_indices().skip(bl.span.start + 1) {
+            match &state {
+                State::ProcessingLinkText => {
                     if c == ']' {
-                        self.state = Some(State::ProcessedLinkText);
+                        state = State::ProcessedLinkText;
                     }
                 },
-                Some(State::ProcessedLinkText) => {
+                State::ProcessedLinkText => {
                     if c == '(' {
-                        self.state = Some(State::ProcessingLinkUrl(UrlState::Empty));
+                        state = State::ProcessingLinkUrl(UrlState::Empty);
                     } else {
-                        // not a real link, start lookup over again
-                        self.reset_lookup();
+                        // not a real link, just skip it without reporting a broken link for it.
+                        break;
                     }
                 },
-                Some(State::ProcessingLinkUrl(url_state)) => {
+                State::ProcessingLinkUrl(url_state) => {
+                    if c == '\n' {
+                        reading_link_url_new_line = true;
+                        continue;
+                    }
+
                     if c == ')' {
                         // record full broken link tag
                         if let UrlState::FilledBrokenMultipleLines = url_state {
-                            // +3 skips the opening delimiter and +1 to include the closing parethesis
-                            let pos_end = attr_span.lo().0 + u32::try_from(pos).unwrap() + 4;
-                            self.record_broken_link(cx, pos_end, BrokenLinkReason::MultipleLines);
-                            self.reset_lookup();
+                            let offset = abs_pos - bl.span.start;
+                            report_broken_link(cx, span, offset, BrokenLinkReason::MultipleLines);
                         }
-                        self.reset_lookup();
-                        continue;
+                        break;
                     }
 
                     if !c.is_whitespace() {
                         if reading_link_url_new_line {
                             // It was reading a link url which was entirely in a single line, but a new char
                             // was found in this new line which turned the url into a broken state.
-                            self.state = Some(State::ProcessingLinkUrl(UrlState::FilledBrokenMultipleLines));
+                            state = State::ProcessingLinkUrl(UrlState::FilledBrokenMultipleLines);
                             continue;
                         }
 
-                        self.state = Some(State::ProcessingLinkUrl(UrlState::FilledEntireSingleLine));
+                        state = State::ProcessingLinkUrl(UrlState::FilledEntireSingleLine);
                     }
                 },
             };
         }
     }
-
-    fn reset_lookup(&mut self) {
-        self.state = None;
-        self.active_span = None;
-        self.active_pos_start = 0;
-    }
-
-    fn record_broken_link(&mut self, cx: &LateContext<'_>, pos_end: u32, reason: BrokenLinkReason) {
-        if let Some(attr_span) = self.active_span {
-            let start = BytePos(self.active_pos_start);
-            let end = BytePos(pos_end);
-
-            let span = Span::new(start, end, attr_span.ctxt(), attr_span.parent());
-
-            let reason_msg = match reason {
-                BrokenLinkReason::MultipleLines => "broken across multiple lines",
-            };
-
-            span_lint(
-                cx,
-                DOC_BROKEN_LINK,
-                span,
-                format!("possible broken doc link: {reason_msg}"),
-            );
-        }
-    }
 }
 
-// TODO: remove this helper function once all changes are good.
-fn log(text: &str) {
-    use std::fs::OpenOptions;
-    use std::io::Write;
+fn report_broken_link(cx: &LateContext<'_>, frag_span: Span, offset: usize, reason: BrokenLinkReason) {
+    let start = frag_span.lo();
+    let end = start + BytePos::from_usize(offset + 5);
 
-    let filename = "../rust-clippy-debug-test.txt";
-    let mut file = OpenOptions::new().write(true).append(true).open(filename).unwrap();
+    let span = Span::new(start, end, frag_span.ctxt(), frag_span.parent());
 
-    if let Err(e) = writeln!(file, "{text}") {
-        eprintln!("Couldn't write to file: {}", e);
-    }
+    let reason_msg = match reason {
+        BrokenLinkReason::MultipleLines => "broken across multiple lines",
+    };
+
+    span_lint(
+        cx,
+        DOC_BROKEN_LINK,
+        span,
+        format!("possible broken doc link: {reason_msg}"),
+    );
 }

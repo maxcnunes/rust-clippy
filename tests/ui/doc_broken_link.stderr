@@ -17,5 +17,21 @@ LL |   /// [doc invalid link broken url host part](https://test
 LL | | /// .fake/doc_invalid_link_broken_url_host_part)
    | |________________________________________________^
 
-error: aborting due to 2 previous errors
+error: possible broken doc link: broken across multiple lines
+  --> tests/ui/doc_broken_link.rs:53:16
+   |
+LL |   /// There is a [fist link - invalid](https://test
+   |  ________________^
+LL | | /// .fake) then it continues
+   | |__________^
+
+error: possible broken doc link: broken across multiple lines
+  --> tests/ui/doc_broken_link.rs:56:80
+   |
+LL |   /// with a [second link - valid](https://test.fake/doc_valid_link) and another [third link - invalid](https://test
+   |  ________________________________________________________________________________^
+LL | | /// .fake). It ends with another
+   | |__________^
+
+error: aborting due to 4 previous errors
 

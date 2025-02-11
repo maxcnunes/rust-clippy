@@ -746,17 +746,12 @@ fn check_attrs(cx: &LateContext<'_>, valid_idents: &FxHashSet<String>, attrs: &[
         return Some(DocHeaders::default());
     }
 
-    // Run broken link checker before parsing the document.
-    broken_link::check(cx, attrs);
-
     // We don't want the parser to choke on intra doc links. Since we don't
     // actually care about rendering them, just pretend that all broken links
     // point to a fake address.
     #[expect(clippy::unnecessary_wraps)] // we're following a type signature
     let fake_broken_link_callback = |bl: BrokenLink<'_>| -> Option<(CowStr<'_>, CowStr<'_>)> {
-        // NOTE: temporary change to check if we can handle broken links report from
-        // this function.
-        broken_link::check_v2(cx, &bl, &doc, &fragments);
+        broken_link::check(cx, &bl, &doc, &fragments);
         Some(("fake".into(), "fake".into()))
     };
 

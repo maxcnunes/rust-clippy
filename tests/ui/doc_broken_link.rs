@@ -49,6 +49,16 @@ pub fn doc_invalid_link_broken_url_scheme_part() {}
 //~^^ ERROR: possible broken doc link: broken across multiple lines
 pub fn doc_invalid_link_broken_url_host_part() {}
 
+/// Test invalid link, for multiple urls in the same block of comment.
+/// There is a [fist link - invalid](https://test
+/// .fake) then it continues
+//~^^ ERROR: possible broken doc link: broken across multiple lines
+/// with a [second link - valid](https://test.fake/doc_valid_link) and another [third link - invalid](https://test
+/// .fake). It ends with another
+//~^^ ERROR: possible broken doc link: broken across multiple lines
+/// line of comment.
+pub fn doc_multiple_invalid_link_broken_url() {}
+
 /// This might be considered a link false positive
 /// and should be ignored by this lint rule:
 /// Example of referencing some code with brackets [FakeType].
